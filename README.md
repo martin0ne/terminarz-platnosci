@@ -19,7 +19,7 @@ Całość lokalnie, zero sieci, zero chmury, zero kont.
 pip3 install fpdf2 openpyxl
 ```
 
-Do `pdf` potrzebny font z polskimi znakami — na macOS (Arial Unicode) i Windows
+Do `pdf` potrzebny font z polskimi znakami (na macOS (Arial Unicode) i Windows
 (Arial/Segoe UI) jest w systemie, na Linuxie `fonts-dejavu`. Można wskazać
 własny: `TERMINARZ_FONT=/ścieżka/do/DejaVuSans.ttf`.
 
@@ -41,18 +41,18 @@ Rejestr: CSV (średnik + UTF-8) albo XLSX (pierwszy arkusz, nagłówek w pierwsz
 wierszu), kolumny jak w faktury-do-rejestru:
 `plik;sprzedawca;nip_sprzedawcy;nr_faktury;data_wystawienia;termin_platnosci;kwota_brutto;komentarz`.
 
-## Jak to działa (szczerze)
+## Jak to działa
 
 - **Koszyki**: przeterminowane = termin < dzisiaj; „w tym tygodniu" = 7 dni od
   dnia startu okna (default: od dziś, czyli dziś + 7 dni); „zapewne następny
   tydzień" = od 8. dnia do końca okna (`--okno`, default 14). To okna kroczące,
-  nie kalendarzowe tygodnie — żeby wynik nie zależał od tego, jaki jest dzień
+  nie kalendarzowe tygodnie; żeby wynik nie zależał od tego, jaki jest dzień
   tygodnia.
 - **Sort**: przeterminowane od najstarszych (najbardziej zaległe na górze),
   reszta od najbliższych terminów.
 - **Daty**: ISO `RRRR-MM-DD`, `DD.MM.RRRR`, `DD.MM.RR`; walidacja kalendarza
   (31.02 to błąd, nie zgadujemy). Daty puste i „brak" pomijamy z licznikiem —
-  „pominięte" jest jawnie wypisywane, nigdy nie cicho.
+  „pominięte" jest jawnie wypisywane, nigdy po cichu.
 - **Kwoty**: polski format („1 845,00 zł", „2 411,2"), też kropka dziesiętna.
   Sumy liczone na `Decimal` z zaokrągleniem half-up (0,5 grosza idzie w górę).
 - **XLSX**: czytany przez openpyxl, pierwszy arkusz, `data_only=True`
@@ -106,5 +106,5 @@ LICENSE                   # MIT
 
 ## Licencja
 
-MIT. Rób co chcesz, bez gwarancji. Zanim polepszysz terminowe decyzje: sprawdź
+MIT. Rób co chcesz, bez gwarancji. Zanim poprawisz terminowe decyzje: sprawdź
 wynik na swoim rejestrze i porównaj z własnym przeglądem ręcznym.

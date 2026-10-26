@@ -16,7 +16,7 @@ Koszyki:
   ZAPEWNE NASTĘPNY TYDZIEŃ  od 8. dnia do końca okna (--okno, default 14)
 
 Kody wyjścia: 0 = OK, 1 = błąd, 2 = nic nie zrobiono (rejestr pusty / nic do pokazania).
-Całość lokalnie, zero sieci. To nie jest system księgowy — po prostu terminarz.
+Całość lokalnie, zero sieci. To nie jest system księgowy: po prostu terminarz.
 """
 import argparse
 import csv
@@ -287,14 +287,17 @@ def pdf_tabela(pdf, tytul, kolor_nagl, wiersze, dzis, opis_kol2, nagl_kol2):
 
 
 def cmd_pdf(a):
-    from fpdf import FPDF
+    try:
+        from fpdf import FPDF
+    except ModuleNotFoundError:
+        die("brak fpdf2: pip3 install fpdf2")
     wiersze = wczytaj_rejestr(a.rejestr)
     dzis = date.today()
     start, koniec = dzis, dzis + timedelta(days=a.okno)
     kosz, bez_terminu, zle_daty, zle_kwoty = klasyfikuj(wiersze, dzis, start, koniec)
     p, t, n = kosz["przeterminowane"], kosz["w_tyg"], kosz["nastepny"]
     if not (p or t or n):
-        print(f"OK: nic do pokazania — brak przeterminowanych i nic w oknie "
+        print(f"OK: nic do pokazania (brak przeterminowanych i nic w oknie "
               f"{start.isoformat()}..{koniec.isoformat()}; PDF nie został wygenerowany")
         return 2
     font = znajdz_font()
