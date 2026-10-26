@@ -99,8 +99,7 @@ pomiar zawsze jest aktualny). Fikcyjne dane, poprawne formatowo.
 
 ```
 terminarz_platnosci.py    # CLI (czytaj / przeglad / pdf) + font resolver
-testy/generuj_fixtures.py # generuje przyklad-rejestr.csv + 2 fixtures (daty od dnia uruchomienia)
-przyklad-rejestr.csv      # wygenerowany fixture przykładowy (lokalny, nie w gicie)
+testy/generuj_fixtures.py # generuje rejestr-okno.csv + rejestr-mieszany.csv (daty od dnia uruchomienia, lokalne, nie w gicie)
 LICENSE                   # MIT
 ```
 
