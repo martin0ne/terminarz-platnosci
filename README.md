@@ -2,9 +2,26 @@
 
 Z rejestru faktur robi PDF: **co płacimy w tym tygodniu / co jest
 przeterminowane** — jedna strona przy typowym rejestrze (do ~25 wierszy);
-przy większych wielostronicowy z powtórzonym nagłówkiem tabeli. Wejście to
-rejestr z narzędzia
-[faktury-do-rejestru](https://github.com/marcinoldak/faktury-do-rejestru)
+przy większych wielostronicowy z powtórzonym nagłówkiem tabeli.
+
+## Skąd wziąć to narzędzie
+
+```bash
+git clone https://github.com/martin0ne/terminarz-platnosci
+cd terminarz-platnosci && pip3 install fpdf2 openpyxl
+```
+
+Rejestr wejściowy generuje
+[faktury-do-rejestru](https://github.com/martin0ne/faktury-do-rejestru):
+`czytaj → rejestr.csv → tutaj`. Cały łańcuch w dwóch komendach:
+
+```bash
+python3 faktury_do_rejestru.py --katalog faktury/ --wyjscie rejestr.csv
+python3 terminarz_platnosci.py przeglad --rejestr rejestr.csv
+```
+
+Wejście to rejestr z narzędzia
+[faktury-do-rejestru](https://github.com/martin0ne/faktury-do-rejestru)
 (CSV ze średnikiem albo XLSX), więc nie trzeba niczego przepisywać drugi raz.
 
 Całość lokalnie, zero sieci, zero chmury, zero kont.
@@ -56,8 +73,12 @@ wierszu), kolumny jak w faktury-do-rejestru:
   dzisiejszą datą a startem okna dostają osobny koszyk „przed oknem (do …)"
   z osobną sumą — rozdzielny od „poza oknem (po …)".
 - **Daty**: ISO `RRRR-MM-DD`, `DD.MM.RRRR`, `DD.MM.RR`; walidacja kalendarza
-  (31.02 to błąd, nie zgadujemy). Daty puste i „brak" pomijamy z licznikiem —
+  (31.02 to błąd, nie zgadujemy). Zła data w `--z`/`--do` = jasny komunikat
+  i kod 1, nie traceback. Daty puste i „brak" pomijamy z licznikiem —
   „pominięte" jest jawnie wypisywane, nigdy po cichu.
+- **Separator CSV**: średnik. CSV z przecinkami (eksport z Excela) jest
+  rozpoznawany po nagłówku i odrzucany z podpowiedzią (kod 2), nie z mylącym
+  „nie ma kolumn".
 - **Kwoty**: polski format („1 845,00 zł”, „2 411,2”, „2829,00 złoty”), też
   kropka dziesiętna („1845.5”). Nigdy ciche zgadywanie: formaty niejednoznaczne
   są **odrzucane z powodem** — „1,234.56” (może US-style), „1.234” (kropka-
@@ -65,6 +86,9 @@ wierszu), kolumny jak w faktury-do-rejestru:
   zł („kwota podejrzana”). Gdy kropka i przecinek występują razem, czytelny
   jest tylko polski wariant „1.234,56”. Sumy liczone na `Decimal` z
   zaokrągleniem half-up (0,5 grosza idzie w górę).
+- **PDF wielostronicowy**: przy powtórzonym nagłówku tabeli na stronach 2+
+  wraca też etykieta sekcji („PRZETERMINOWANE — cd.”), żeby widać było,
+  w którym koszyku jesteśmy.
 - **XLSX**: czytany przez openpyxl, pierwszy arkusz, `data_only=True`
   (czyta wyniki formuł, nie formuły).
 - **Zero AI, zero sieci**: to proste reguły na pliku, deterministycznie.
@@ -113,7 +137,8 @@ pomiar zawsze jest aktualny). Fikcyjne dane, poprawne formatowo.
 
 ```
 terminarz_platnosci.py    # CLI (czytaj / przeglad / pdf) + font resolver
-testy/generuj_fixtures.py # generuje rejestr-okno.csv + rejestr-mieszany.csv (daty od dnia uruchomienia, lokalne, nie w gicie)
+testy/generuj_fixtures.py # generuje rejestr-okno.csv + rejestr-mieszany.csv + rejestr-duzy.csv (daty od dnia uruchomienia, lokalne, nie w gicie)
+testy/testy.py            # testy regresyjne (uruchom generuj_fixtures.py, potem: python3 testy/testy.py)
 LICENSE                   # MIT
 ```
 

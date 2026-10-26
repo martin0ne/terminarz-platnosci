@@ -170,6 +170,10 @@ def wczytaj_rejestr(sciezka):
     else:
         die(f"nieznany format rejestru: {sciezka} (obsługa: .csv, .xlsx)")
     braki = [k for k in ("termin_platnosci", "kwota_brutto") if k not in naglowek]
+    if braki and ext == ".csv" and any("," in c for c in naglowek):
+        # nagłówek ma kolumny, ale rozdzielone przecinkiem — mylące „nie ma kolumn”
+        die("rejestr wygląda na CSV z przecinkami — separator to średnik; "
+            "zapisz ponownie albo skonwertuj", 2)
     if braki:
         die(f"rejestr nie ma kolumn: {', '.join(braki)} (nagłówek: {';'.join(naglowek)})")
     idx = {k: naglowek.index(k) for k in KOLUMNY if k in naglowek}
@@ -337,8 +341,15 @@ def pdf_tabela(pdf, tytul, kolor_nagl, wiersze, dzis, opis_kol2, nagl_kol2):
     pdf.set_fill_color(232, 232, 232)
     nagl = ["termin", nagl_kol2, "nr faktury", "sprzedawca", "kwota"]
 
-    def naglowek_tabeli():
-        # powtarzany na każdej stronie przy wielostronicowym PDF
+    def naglowek_tabeli(czesc=None):
+        # powtarzany na każdej stronie przy wielostronicowym PDF;
+        # czesc = etykieta sekcji („PRZETERMINOWANE — cd.”), żeby widać było,
+        # w którym koszyku jesteśmy także na stronie 2+
+        if czesc:
+            pdf.set_text_color(*kolor_nagl)
+            pdf.set_font_size(8.5)
+            pdf.cell(0, 5, czesc, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(0, 0, 0)
         pdf.set_font_size(7.5)
         for w_, t_ in zip(szer_kol, nagl):
             pdf.cell(w_, 5, t_, border=1, fill=True, align="L")
@@ -349,7 +360,7 @@ def pdf_tabela(pdf, tytul, kolor_nagl, wiersze, dzis, opis_kol2, nagl_kol2):
     for w in wiersze:
         if pdf.will_page_break(5.5):
             pdf.add_page()
-            naglowek_tabeli()
+            naglowek_tabeli(czesc=f"{tytul} — cd.")
         kom2 = dni_opis(w["termin"], dzis)
         pdf.set_text_color(*kolor_nagl) if w["termin"] < dzis else pdf.set_text_color(0, 0, 0)
         pdf.cell(szer_kol[0], 5.5, w["termin"].isoformat(), border=1)
@@ -446,7 +457,7 @@ def cmd_pdf(a):
     if strony > 1:
         w_wierszy = len(p) + len(t) + len(n)
         print(f"UWAGA: PDF wielostronicowy: {w_wierszy} wierszy (stron: {strony}) — "
-              f"nagłówek tabeli powtórzony na każdej stronie.")
+              f"nagłówek tabeli + etykieta sekcji („… — cd.”) powtórzone na każdej stronie.")
     return 0
 
 
@@ -454,10 +465,13 @@ def cmd_pdf(a):
 def cmd_czytaj(a):
     wiersze = wczytaj_rejestr(a.rejestr)
     dzis = date.today()
-    start = parsuj_date(a.z) if a.z else dzis
     if a.okno < 1 and not a.do:
         die(f"--okno musi być ≥ 1 (podano: {a.okno})")
-    koniec = parsuj_date(a.do) if a.do else start + timedelta(days=a.okno)
+    try:
+        start = parsuj_date(a.z) if a.z else dzis
+        koniec = parsuj_date(a.do) if a.do else start + timedelta(days=a.okno)
+    except ValueError:
+        die(f"zła data: {a.z or a.do} (oczekuję RRRR-MM-DD)")
     if koniec < start:
         die(f"--do ({a.do}) jest wcześniejsze niż --z ({a.z})")
     kosz, bez_terminu, zle_daty, zle_kwoty = klasyfikuj(wiersze, dzis, start, koniec)
