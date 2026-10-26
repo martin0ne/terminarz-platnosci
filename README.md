@@ -16,9 +16,10 @@ Rejestr wejściowy generuje
 `czytaj → rejestr.csv → tutaj`. Cały łańcuch w dwóch komendach:
 
 ```bash
-python3 faktury_do_rejestru.py --katalog faktury/ --wyjscie rejestr.csv
+python3 faktury_do_rejestru.py czytaj --katalog faktury/ --rejestr rejestr.csv
 python3 terminarz_platnosci.py przeglad --rejestr rejestr.csv
 ```
+(przetestowane wklejeniem — obie komendy na świeżym katalogu)
 
 Wejście to rejestr z narzędzia
 [faktury-do-rejestru](https://github.com/martin0ne/faktury-do-rejestru)
