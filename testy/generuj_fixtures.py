@@ -7,7 +7,8 @@ następny tydzień / poza oknem), więc pomiar zawsze jest aktualny.
 Tworzy:
   przyklad-rejestr.csv            (repo root — przykładowy wiersz)
   testy/rejestr-okno.csv          (8 wierszy: okno + bez terminu)
-  testy/rejestr-mieszany.csv      (7 wierszy: formaty dat/kwot + złe wiersze)
+  testy/rejestr-mieszany.csv      (10 wierszy: formaty dat/kwot + złe/suspicious wiersze)
+  testy/rejestr-duzy.csv          (42 wiersze: 40 w oknie → wielostronicowy PDF)
 Fikcyjne dane, poprawne formatowo. Nic nie wysyła, zero sieci.
 """
 import csv
@@ -72,4 +73,18 @@ zapisz("testy/rejestr-mieszany.csv", [
            komentarz="kwota słownie — rejestr nie powinien tak wyglądać"),
     wiersz("FV/2026/10/017", s3[0], s3[1], "", "3 412,80", offset_wyst=-2,  # pusty termin
            komentarz="brak terminu w PDF źródłowym"),
+    wiersz("FV/2026/10/018", s4[0], s4[1], d(10), "1845,00 złoty", offset_wyst=-4,  # waluta słownie
+           komentarz="„złoty” słownie — działa"),
+    wiersz("FV/2026/10/019", s1[0], s1[1], d(6), "1,234.56", offset_wyst=-4,  # US-style → odrzucenie
+           komentarz="format US — odrzucany, nigdy ciche zgadywanie"),
+    wiersz("FV/2026/10/020", s2[0], s2[1], d(12), "1.234", offset_wyst=-4,  # kropka-tysiące czy grosze?
+           komentarz="kropka-tysiące czy grosze? — odrzucane"),
 ])
+
+# -- rejestr-duzy: 40 wierszy w koszykach PDF → wielostronicowy PDF z nagłówkiem --
+zapisz("testy/rejestr-duzy.csv",
+       [wiersz(f"FV/2026/10/{n:03d}", SPRA[n % 4][0], SPRA[n % 4][1],
+               d(offset), f"{n * 100 + 111},00", offset_wyst=offset)
+        for n, offset in enumerate([-(3 - i) for i in range(3)]
+                                    + [i % 8 for i in range(12)]      # 12 × w tygodniu
+                                    + [8 + i % 7 for i in range(25)])])  # 25 × następny

@@ -8,10 +8,14 @@ plik;sprzedawca;nip_sprzedawcy;nr_faktury;data_wystawienia;termin_platnosci;kwot
 Komendy:
   czytaj   --rejestr R [--z D] [--do D] [--okno N]   podgląd w terminalu
   przeglad --rejestr R [--okno N]                    podgląd w terminalu (domyślne okno)
-  pdf      --rejestr R --wyjscie P.pdf [--okno N]    jednostronicowy PDF
+  pdf      --rejestr R --wyjscie P.pdf [--okno N]    PDF: 1 strona do ~25 wierszy,
+                                                     przy większych wielostronicowy
+                                                     z powtórzonym nagłówkiem tabeli
 
 Koszyki:
   PRZETERMINOWANE        termin < dzisiaj (sort: od najstarszych)
+  PRZED OKNEM            termin ≥ dzisiaj, ale przed startem okna
+                         (tylko przy --z z przyszłości) — osobna suma
   W TYM TYGODNIU         przez najbliższe 7 dni, od dnia startu okna (default: od dziś)
   ZAPEWNE NASTĘPNY TYDZIEŃ  od 8. dnia do końca okna (--okno, default 14)
 
@@ -23,7 +27,7 @@ import csv
 import os
 import sys
 from datetime import date, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 KOLUMNY = ["plik", "sprzedawca", "nip_sprzedawcy", "nr_faktury",
            "data_wystawienia", "termin_platnosci", "kwota_brutto", "komentarz"]
@@ -58,22 +62,61 @@ def parsuj_termin(s):
         return None, "zła data"
 
 
+def _kropki_tysiece(czesc_calkowita):
+    """True = „1.234.567” (kropki co 3 cyfry od prawej, bez zera wiodącego)."""
+    segs = czesc_calkowita.split(".")
+    if len(segs) < 2 or not all(seg.isdigit() for seg in segs):
+        return False
+    if len(segs[0]) not in (1, 2, 3):
+        return False
+    return all(len(seg) == 3 for seg in segs[1:])
+
+
 def parsuj_kwota(s):
-    """Polski format: „1 845,00 zł”, „2 411,2”, „2829,00”; też kropka dziesiętna."""
+    """Polski format: „1 845,00 zł”, „1845,00 złoty”, „2 411,2”, „2829,00”;
+    też kropka dziesiętna („1845.5”). Nigdy ciche zgadywanie: formaty
+    niejednoznaczne (US-style, „1.234”, „1,234”) rzucają ValueError z powodem —
+    wiersz idzie do licznika pominiętych z powodem, nigdy po cichu."""
     t = (s or "").strip()
     if not t:
         raise ValueError("pusta kwota")
-    t = (t.replace("\u00a0", " ").replace("\u202f", " ")
-          .replace("zł", "").replace("złoty", "")
-          .replace("PLN", "").replace("pln", "").strip())
-    # tabele: spacje = separatory tysięcy
-    if "," in t:
+    t = t.replace("\u00a0", " ").replace("\u202f", " ")
+    # najpierw pełne słowa waluty („złoty” zawiera „zł” — kolejność ma znaczenie)
+    t = (t.replace("złotych", "").replace("złotego", "")
+          .replace("złoty", "").replace("złote", "")
+          .replace("zł", "").replace("PLN", "").replace("pln", "").strip())
+    znak = ""
+    if t.startswith(("+", "-")):
+        znak = "-" if t.startswith("-") else ""
+        t = t[1:].strip()
+    if "." in t and "," in t:
+        # kropka i przecinek razem: rozpoznajemy TYLKO polski wariant
+        # „1.234,56” (kropki-tysiące co 3 cyfry, przecinek + 2 cyfry groszy).
+        # Reszta (np. US „1,234.56”) = odrzucenie, nie zgadywanie.
+        cal, po = t.rsplit(",", 1)
+        cal = cal.replace(" ", "")
+        if len(po) == 2 and po.isdigit() and _kropki_tysiece(cal):
+            t = cal.replace(".", "") + "." + po
+        else:
+            raise ValueError("podejrzany format kwoty (może US-style)")
+    elif "," in t:
+        po = t.rsplit(",", 1)[1]
+        if len(po) == 3 and po.isdigit():
+            raise ValueError("podejrzany format kwoty (przecinek-tysiące czy grosze?)")
         t = t.replace(" ", "").replace(".", "").replace(",", ".")
+    elif "." in t:
+        # kropka bez przecinka: grosza („1845.5”, „2829.00”) albo tysiące („1.234”)
+        po = t.rsplit(".", 1)[1]
+        if len(po) == 3 and po.isdigit():
+            raise ValueError("podejrzany format kwoty (kropka-tysiące czy grosze?)")
+        t = t.replace(" ", "")
     else:
         t = t.replace(" ", "")
-    d = Decimal(t)
+    d = Decimal(znak + t)
     if not d.is_finite():
-        raise ValueError(s)
+        raise ValueError("podejrzany format kwoty")
+    if abs(d) > Decimal("10000000"):
+        raise ValueError("kwota podejrzana (> 10 mln)")
     return d
 
 
@@ -109,13 +152,19 @@ def wczytaj_rejestr(sciezka):
         wb = load_workbook(sciezka, read_only=True, data_only=True)
         ws = wb.active
         it = ws.iter_rows(values_only=True)
-        naglowek = [("" if c is None else str(c).strip()) for c in next(it)]
+        try:
+            naglowek = [("" if c is None else str(c).strip()) for c in next(it)]
+        except StopIteration:
+            die(f"rejestr pusty: {sciezka}", 2)
         for raw in it:
             wiersze.append(_wiersz_z_wiersza(raw))
     elif ext == ".csv":
         with open(sciezka, newline="", encoding="utf-8-sig") as f:
             r = csv.reader(f, delimiter=";")
-            naglowek = [c.strip() for c in next(r)]
+            try:
+                naglowek = [c.strip() for c in next(r)]
+            except StopIteration:
+                die(f"rejestr pusty: {sciezka}", 2)
             for raw in r:
                 wiersze.append(_wiersz_z_wiersza(raw))
     else:
@@ -131,13 +180,19 @@ def wczytaj_rejestr(sciezka):
 
 def klasyfikuj(wiersze, dzis, start, koniec):
     """Dzieli wiersze na koszyki + liczniki pominiętych."""
-    kosz = {"przeterminowane": [], "w_tyg": [], "nastepny": [], "poza": []}
+    kosz = {"przeterminowane": [], "przed_oknem": [], "w_tyg": [],
+            "nastepny": [], "poza": []}
     bez_terminu, zle_daty, zle_kwoty = [], [], []
     for w in wiersze:
         termin, powod = parsuj_termin(w["termin_platnosci"])
         try:
             kwota = parsuj_kwota(w["kwota_brutto"])
-        except (ValueError, InvalidOperation):
+        except InvalidOperation:
+            w["powod_kwota"] = "zła kwota"
+            zle_kwoty.append(w)
+            continue
+        except ValueError as e:
+            w["powod_kwota"] = str(e)
             zle_kwoty.append(w)
             continue
         w["kwota"] = kwota
@@ -151,7 +206,7 @@ def klasyfikuj(wiersze, dzis, start, koniec):
         if termin < dzis:
             kosz["przeterminowane"].append(w)
         elif termin < start:
-            kosz["poza"].append(w)  # w oknie? nie — przed startem (np. przy --z z przyszłości)
+            kosz["przed_oknem"].append(w)  # po dziś, ale przed startem (--z z przyszłości)
         elif termin <= start + timedelta(days=7) and termin <= koniec:
             kosz["w_tyg"].append(w)
         elif termin <= koniec:
@@ -202,6 +257,9 @@ def wydruk(kosz, dzis, start, koniec, bez_terminu, zle_daty, zle_kwoty, rejestr)
               f"..{koniec.isoformat()}):")
         for w in n:
             print(linia_wiersza(w, dzis))
+    if kosz["przed_oknem"]:
+        print(f"\nprzed oknem (do {start.isoformat()}): {len(kosz['przed_oknem'])} — "
+              f"suma {kwota_str(suma(kosz['przed_oknem']))}")
     if kosz["poza"]:
         print(f"\npoza oknem (po {koniec.isoformat()}): {len(kosz['poza'])} — "
               f"suma {kwota_str(suma(kosz['poza']))}")
@@ -213,14 +271,20 @@ def wydruk(kosz, dzis, start, koniec, bez_terminu, zle_daty, zle_kwoty, rejestr)
         pom.append(f"zła data: {len(zle_daty)} "
                    f"(wiersze: {', '.join(str(w['nr_wiersza']) for w in zle_daty)})")
     if zle_kwoty:
-        pom.append(f"zła kwota: {len(zle_kwoty)} "
-                   f"(wiersze: {', '.join(str(w['nr_wiersza']) for w in zle_kwoty)})")
+        det = ", ".join(f"{w['nr_wiersza']} — {w['powod_kwota']}" for w in zle_kwoty)
+        pom.append(f"zła kwota: {len(zle_kwoty)} (wiersze: {det})")
     if pom:
         print("pominięte: " + "; ".join(pom))
     print("\nPODSUMOWANIE:")
     print(f"  przeterminowane: {len(p)} (suma {kwota_str(suma(p))})")
     print(f"  w tygodniu: {len(t)} (suma {kwota_str(suma(t))})")
     print(f"  w następnym tygodniu: {len(n)} (suma {kwota_str(suma(n))})")
+    if kosz["przed_oknem"]:
+        print(f"  przed oknem: {len(kosz['przed_oknem'])} "
+              f"(suma {kwota_str(suma(kosz['przed_oknem']))})")
+    if kosz["poza"]:
+        print(f"  poza oknem: {len(kosz['poza'])} "
+              f"(suma {kwota_str(suma(kosz['poza']))})")
     print(f"  do zapłaty łącznie w oknie: {len(t) + len(n)} "
           f"(suma {kwota_str(suma(t) + suma(n))})")
     print(f"  wraz z przeterminowanymi: {len(p) + len(t) + len(n)} "
@@ -230,9 +294,16 @@ def wydruk(kosz, dzis, start, koniec, bez_terminu, zle_daty, zle_kwoty, rejestr)
 # ============================================================ FONTS (jak wystaw.py)
 def znajdz_font():
     kandydaci = []
-    env = os.environ.get("TERMINARZ_FONT") or os.environ.get("FDR_FONT")
-    if env:
-        kandydaci.append(env)
+    env_warn = []
+    for zm in ("TERMINARZ_FONT", "FDR_FONT"):
+        env = os.environ.get(zm)
+        if env:
+            if os.path.exists(env):
+                kandydaci.append(env)
+            else:
+                env_warn.append(f"{zm}={env} — plik nie istnieje")
+    for komunikat in env_warn:
+        print(f"UWAGA: {komunikat} — użyję innego fontu z listy.", file=sys.stderr)
     try:
         import matplotlib
         kandydaci.append(os.path.join(matplotlib.get_data_path(), "fonts", "ttf", "DejaVuSans.ttf"))
@@ -263,14 +334,22 @@ def pdf_tabela(pdf, tytul, kolor_nagl, wiersze, dzis, opis_kol2, nagl_kol2):
     pdf.cell(0, 7, f"{tytul}  ({len(wiersze)} poz.)", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(0, 0, 0)
     szer_kol = [22, 24, 34, 80, 30]
-    pdf.set_font_size(7.5)
     pdf.set_fill_color(232, 232, 232)
     nagl = ["termin", nagl_kol2, "nr faktury", "sprzedawca", "kwota"]
-    for w_, t_ in zip(szer_kol, nagl):
-        pdf.cell(w_, 5, t_, border=1, fill=True, align="L")
-    pdf.ln()
-    pdf.set_font_size(8.5)
+
+    def naglowek_tabeli():
+        # powtarzany na każdej stronie przy wielostronicowym PDF
+        pdf.set_font_size(7.5)
+        for w_, t_ in zip(szer_kol, nagl):
+            pdf.cell(w_, 5, t_, border=1, fill=True, align="L")
+        pdf.ln()
+        pdf.set_font_size(8.5)
+
+    naglowek_tabeli()
     for w in wiersze:
+        if pdf.will_page_break(5.5):
+            pdf.add_page()
+            naglowek_tabeli()
         kom2 = dni_opis(w["termin"], dzis)
         pdf.set_text_color(*kolor_nagl) if w["termin"] < dzis else pdf.set_text_color(0, 0, 0)
         pdf.cell(szer_kol[0], 5.5, w["termin"].isoformat(), border=1)
@@ -280,6 +359,8 @@ def pdf_tabela(pdf, tytul, kolor_nagl, wiersze, dzis, opis_kol2, nagl_kol2):
         pdf.cell(szer_kol[3], 5.5, (w["sprzedawca"] or "(bez sprzedawcy)")[:52], border=1)
         pdf.cell(szer_kol[4], 5.5, kwota_str(w["kwota"], waluta=False), border=1, align="R")
         pdf.ln()
+    if pdf.will_page_break(8):
+        pdf.add_page()  # nie zostawiaj sumy samej na dole strony
     pdf.set_font_size(9)
     pdf.cell(0, 6, f"Suma: {kwota_str(suma(wiersze))}", align="R",
              new_x="LMARGIN", new_y="NEXT")
@@ -291,6 +372,8 @@ def cmd_pdf(a):
         from fpdf import FPDF
     except ModuleNotFoundError:
         die("brak fpdf2: pip3 install fpdf2")
+    if a.okno < 1:
+        die(f"--okno musi być ≥ 1 (podano: {a.okno})")
     wiersze = wczytaj_rejestr(a.rejestr)
     dzis = date.today()
     start, koniec = dzis, dzis + timedelta(days=a.okno)
@@ -336,25 +419,34 @@ def cmd_pdf(a):
         pom.append(f"zła data: {len(zle_daty)}")
     if zle_kwoty:
         pom.append(f"zła kwota: {len(zle_kwoty)}")
+    if kosz["przed_oknem"]:
+        pom.append(f"przed oknem (do {start.isoformat()}): {len(kosz['przed_oknem'])} "
+                   f"({kwota_str(suma(kosz['przed_oknem']))})")
     if kosz["poza"]:
-        pom.append(f"poza oknem: {len(kosz['poza'])} ({kwota_str(suma(kosz['poza']))})")
+        pom.append(f"poza oknem (po {koniec.isoformat()}): {len(kosz['poza'])} "
+                   f"({kwota_str(suma(kosz['poza']))})")
     if pom:
         pdf.set_font_size(7.5)
-        pdf.cell(0, 5, "pominięte / poza stroną: " + "; ".join(pom),
+        pdf.cell(0, 5, "pominięte / poza oknem: " + "; ".join(pom),
                  new_x="LMARGIN", new_y="NEXT")
     pdf.set_font_size(7)
     pdf.set_text_color(110, 110, 110)
     pdf.ln(2)
-    pdf.cell(0, 5, "Wygenerowano lokalnie (terminarz-platnosci v0.1). Rejestr roboczy — "
+    pdf.cell(0, 5, "Wygenerowano lokalnie (terminarz-platnosci v0.2). Rejestr roboczy — "
              "potwierdź kwoty u źródła (faktura/bank), to nie jest system księgowy.",
              new_x="LMARGIN", new_y="NEXT")
     kat = os.path.dirname(os.path.abspath(a.wyjscie))
     if kat:
         os.makedirs(kat, exist_ok=True)
     pdf.output(a.wyjscie)
+    strony = getattr(pdf, "pages_count", None) or pdf.page
     print(f"OK: terminarz PDF -> {a.wyjscie} "
           f"(przeterminowane: {len(p)}, w tym tygodniu: {len(t)}, następny tydzień: {len(n)}; "
           f"do zapłaty w oknie: {kwota_str(suma(t) + suma(n))})")
+    if strony > 1:
+        w_wierszy = len(p) + len(t) + len(n)
+        print(f"UWAGA: PDF wielostronicowy: {w_wierszy} wierszy (stron: {strony}) — "
+              f"nagłówek tabeli powtórzony na każdej stronie.")
     return 0
 
 
@@ -363,6 +455,8 @@ def cmd_czytaj(a):
     wiersze = wczytaj_rejestr(a.rejestr)
     dzis = date.today()
     start = parsuj_date(a.z) if a.z else dzis
+    if a.okno < 1 and not a.do:
+        die(f"--okno musi być ≥ 1 (podano: {a.okno})")
     koniec = parsuj_date(a.do) if a.do else start + timedelta(days=a.okno)
     if koniec < start:
         die(f"--do ({a.do}) jest wcześniejsze niż --z ({a.z})")
@@ -385,7 +479,7 @@ def main():
         prog="terminarz_platnosci.py",
         description="rejestr faktur -> co płacimy w tym tygodniu / co jest przeterminowane",
         epilog="Całość lokalnie, zero sieci. Nie jest systemem księgowym.")
-    p.add_argument("--version", action="version", version="%(prog)s 0.1")
+    p.add_argument("--version", action="version", version="%(prog)s 0.2")
     sub = p.add_subparsers(dest="komenda", required=True)
 
     def dodaj(kom, opis):

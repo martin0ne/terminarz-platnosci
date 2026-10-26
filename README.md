@@ -1,7 +1,9 @@
 # terminarz-platnosci
 
-Z rejestru faktur robi jednostronicowy PDF: **co płacimy w tym tygodniu /
-co jest przeterminowane**. Wejście to rejestr z narzędzia
+Z rejestru faktur robi PDF: **co płacimy w tym tygodniu / co jest
+przeterminowane** — jedna strona przy typowym rejestrze (do ~25 wierszy);
+przy większych wielostronicowy z powtórzonym nagłówkiem tabeli. Wejście to
+rejestr z narzędzia
 [faktury-do-rejestru](https://github.com/marcinoldak/faktury-do-rejestru)
 (CSV ze średnikiem albo XLSX), więc nie trzeba niczego przepisywać drugi raz.
 
@@ -11,7 +13,7 @@ Całość lokalnie, zero sieci, zero chmury, zero kont.
 |---|---|
 | `czytaj` | wczytuje rejestr, drukuje w terminalu koszyki: przeterminowane + okno płatności |
 | `przeglad` | to samo co `czytaj` z domyślnym oknem (tekst, bez PDF) |
-| `pdf` | jednostronicowy PDF z sekcjami PRZETERMINOWANE / W TYM TYGODNIU / ZAPEWNE NASTĘPNY TYDZIEŃ |
+| `pdf` | PDF z sekcjami PRZETERMINOWANE / W TYM TYGODNIU / ZAPEWNE NASTĘPNY TYDZIEŃ (jedna strona do ~25 wierszy; większe — wielostronicowe z powtórzonym nagłówkiem + ostrzeżenie w terminalu) |
 
 ## Instalacja
 
@@ -32,7 +34,7 @@ python3 terminarz_platnosci.py przeglad --rejestr rejestr.csv
 # węższe okno
 python3 terminarz_platnosci.py czytaj --rejestr rejestr.csv --z 2026-10-26 --do 2026-11-09
 
-# PDF na jednostronicę
+# PDF (jedna strona przy typowym rejestrze, wielostronicowy przy większym)
 python3 terminarz_platnosci.py pdf --rejestr rejestr.csv --wyjscie terminarz.pdf
 python3 terminarz_platnosci.py pdf --rejestr rejestr.xlsx --wyjscie terminarz.pdf --okno 21
 ```
@@ -50,11 +52,19 @@ wierszu), kolumny jak w faktury-do-rejestru:
   tygodnia.
 - **Sort**: przeterminowane od najstarszych (najbardziej zaległe na górze),
   reszta od najbliższych terminów.
+- **Okno od --z**: gdy start okna (`--z`) jest w przyszłości, wiersze między
+  dzisiejszą datą a startem okna dostają osobny koszyk „przed oknem (do …)"
+  z osobną sumą — rozdzielny od „poza oknem (po …)".
 - **Daty**: ISO `RRRR-MM-DD`, `DD.MM.RRRR`, `DD.MM.RR`; walidacja kalendarza
   (31.02 to błąd, nie zgadujemy). Daty puste i „brak" pomijamy z licznikiem —
   „pominięte" jest jawnie wypisywane, nigdy po cichu.
-- **Kwoty**: polski format („1 845,00 zł", „2 411,2"), też kropka dziesiętna.
-  Sumy liczone na `Decimal` z zaokrągleniem half-up (0,5 grosza idzie w górę).
+- **Kwoty**: polski format („1 845,00 zł”, „2 411,2”, „2829,00 złoty”), też
+  kropka dziesiętna („1845.5”). Nigdy ciche zgadywanie: formaty niejednoznaczne
+  są **odrzucane z powodem** — „1,234.56” (może US-style), „1.234” (kropka-
+  tysiące czy grosze?), „1,234” (przecinek-tysiące czy grosze?), kwota > 10 mln
+  zł („kwota podejrzana”). Gdy kropka i przecinek występują razem, czytelny
+  jest tylko polski wariant „1.234,56”. Sumy liczone na `Decimal` z
+  zaokrągleniem half-up (0,5 grosza idzie w górę).
 - **XLSX**: czytany przez openpyxl, pierwszy arkusz, `data_only=True`
   (czyta wyniki formuł, nie formuły).
 - **Zero AI, zero sieci**: to proste reguły na pliku, deterministycznie.
@@ -64,9 +74,13 @@ wierszu), kolumny jak w faktury-do-rejestru:
 | Zbiór | n | przeterminowane | w tygodniu | następny tydzień | bez terminu | zła data | zła kwota | poza oknem |
 |---|---|---|---|---|---|---|---|---|
 | `testy/rejestr-okno.csv` | 8 | 1 | 4 | 2 | 1 | 0 | 0 | 0 |
-| `testy/rejestr-mieszany.csv` | 7 | 2 | 1 | 1 | 1 | 1 | 1 | 0 |
+| `testy/rejestr-mieszany.csv` | 10 | 2 | 1 | 2 | 1 | 1 | 3 | 0 |
+| `testy/rejestr-duzy.csv` | 40 | 3 | 12 | 25 | 0 | 0 | 0 | 0 |
 
 Pomiar z dnia 2026-10-26 (daty w fixture'ach są policzone względem tej daty).
+`rejestr-mieszany` zawiera 3 odrzucenia kwot z powodem: „dwieście złotych"
+(słownie), „1,234.56" (może US-style), „1.234" (kropka-tysiące czy grosze?);
+przypadek „1845,00 złoty" jest liczony poprawnie (następny tydzień).
 **Brak pomiaru = brak deklaracji.** Fixtures wygenerujesz skryptem
 `python3 testy/generuj_fixtures.py` (daty liczone od dnia uruchomienia, więc
 pomiar zawsze jest aktualny). Fikcyjne dane, poprawne formatowo.
